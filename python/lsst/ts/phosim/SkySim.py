@@ -97,6 +97,67 @@ class SkySim(object):
 
         return sky
 
+    @staticmethod
+    def fromObservationWithGaiaSourcesCenter(obs):
+        """Instantiate a SkySim object from an Observation.
+        Queries Gaia catalog to populate with sources.
+
+        Parameters
+        ----------
+        obs : ObservationMetaData
+
+        Returns
+        -------
+        SkySim
+            The Sky corresponding to the observation
+
+        Raises
+        ______
+        ValueError
+            If the wf sensor ra straddles 360' divide.
+
+        """
+        sky = SkySim()
+        sky._obs = obs
+
+        chip = 'R22_S11'
+
+        # find target center and width for query
+        cornersA = getCornerRaDec(chip, sky._camera, sky._obs, 
+            epoch=sky._obs.mjd.TAI, includeDistortion=True)
+        cornersRA = np.array([x[0] for x in cornersA])
+        cornersDecl = np.array([x[1] for x in cornersA])
+        minRA = cornersRA.min()
+        maxRA = cornersRA.max()
+        minDecl = cornersDecl.min()
+        maxDecl = cornersDecl.max()
+
+        if (maxRA - minRA) > 180:
+            raise ValueError("Do not handle the degree wrap-around\
+                case yet (ra ~ 360').")
+
+        midRA = (minRA + maxRA) / 2
+        midDecl = (minDecl + maxDecl) / 2 
+        widthRA = maxRA - minRA
+        heightDecl = maxDecl - minDecl
+
+        # make query
+        target = SkyCoord(ra=midRA, dec=midDecl, unit=(u.degree, u.degree),
+            frame='icrs')
+        width = u.Quantity(widthRA * SkySim.QUERY_BUFFER, u.deg)
+        height = u.Quantity(heightDecl * SkySim.QUERY_BUFFER, u.deg)
+        stars = Gaia.query_object_async(coordinate=target, width=width,
+            height=height, verbose=False)
+
+        # add stars to sky
+        sky.addStarByRaDecInDeg(
+            stars['source_id'],
+            stars['ra'],
+            stars['dec'],
+            stars['phot_g_mean_mag'])
+
+        return sky
+
     def setCamera(self, camera):
         """Set the camera object.
 
